@@ -22,10 +22,10 @@ Traditional actor systems (like Akka, Erlang, protoactor-go) are awesome... unti
 
 ## How does it work?
 
-- **MailboxPoster**: The main star. Posts messages to a distributed queue, grabs a lock, and processes them one at a time — *per entity*.
+- **MailboxPoster**: The main star. Posts messages to a distributed queue, grabs a lock, and processes them one at a time — *per entity*. It also calls `UpdateLocked` for you automagically after each processing step, so you don't have to worry about updating or releasing locks yourself.
 - **LockableQueue**: Abstracts your DB-backed queue and distributed lock. Plug in MongoDB, Postgres, Redis, etc.
 - **Envelope**: Wraps your message with context (like user ID).
-- **Runner**: Processes all pending events for an entity, then releases the lock.
+- **Runner**: You implement the logic for processing a locked entity (`RunLocked`), and how to acquire the lock, but the mailbox wires everything up and keeps the loop running for you.
 
 All the hard stuff (locking, batching, retries, crash recovery) is handled for you. You just write your business logic.
 

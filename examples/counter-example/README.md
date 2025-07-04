@@ -42,7 +42,7 @@ The `Events` field is an optimization. Instead of updating the counter immediate
 
 ### 3. Runner: Processing Events
 
-The runner acquires a lock, processes all pending events for a user, updates the counter, and releases the lock. Only one runner per user can hold the lock at a time.
+The runner acquires a lock, processes all pending events for a user, updates the counter, and releases the lock. Only one runner per user can hold the lock at a time. **You only implement the logic for processing events and acquiring the lock; the mailbox calls `UpdateLocked` for you automatically after each processing step.**
 
 ```go
 func processEvents(state *State) {
