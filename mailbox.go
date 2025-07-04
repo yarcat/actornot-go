@@ -9,43 +9,68 @@ import (
 	"github.com/lmittmann/tint"
 )
 
-// MailboxPoster implements an actor-like message processing system. It serializes
-// messages for a specific destination (e.g. a Telegram chat), ensuring they are
-// processed sequentially in a single go-routine within the whole cloud. This approach
-// guarantees consistent state management even across distributed server instances
-// or workers and is designed for resilience against crashes and restarts.
+// MailboxPoster implements a distributed actor-like message processing system that
+// provides serialized, single-threaded message processing for specific destinations
+// (e.g., Telegram chats, user sessions) across a distributed cloud environment.
+// It ensures sequential message processing and consistent state management even
+// when deployed across multiple server instances or workers.
 //
-// The design is inspired by the Actor model (see https://en.wikipedia.org/wiki/Actor_model)
-// and libraries such as protoactor-go. In this paradigm, a "process"
-// is responsible for enqueueing an update to the user's mailbox and scheduling
-// its processing if no other process is currently active for that user.
+// Design Philosophy:
 //
-// The processing lifecycle involves the following key steps, emphasizing atomicity
-// for critical state changes:
+// This implementation is conceptually inspired by the Actor model
+// (https://en.wikipedia.org/wiki/Actor_model) and draws practical implementation
+// patterns from protoactor-go. Like protoactor-go, it uses atomic operations and
+// distributed locking to coordinate message processing across multiple instances.
+// However, unlike protoactor-go's in-memory approach, this system is designed to
+// work with heavyweight, persistent storage systems (e.g., databases) for both
+// message queuing and distributed coordination.
 //
-//  1. Enqueue Update: An incoming update is added to the mailbox, which is
-//     typically an array within the user's document. This operation, along with
-//     incrementing a counter, must be atomic.
-//  2. Attempt to Acquire Processing Lock: The system tries to transition the user's
-//     state to "running". This is an atomic operation that also updates a lease
-//     time to ensure the system can self-heal from crashes or restarts. If
-//     another process already holds the "running" state, this instance waits.
-//  3. Process Queue: If the "running" state is successfully acquired, this
-//     instance processes messages from the queue until it's empty. The lease
-//     time is periodically updated during this phase.
-//  4. Release Lock and Re-check: Once the queue is empty, the user's state is
-//     atomically transitioned to "idle". The system then checks if new updates
-//     arrived during the processing period. If so, it attempts to re-acquire the
-//     "running" state (returning to step 2). It's important to note that
-//     another worker might acquire the "running" state at this juncture.
+// The key insight is that while traditional actor systems rely on in-process
+// coordination, distributed systems require external coordination mechanisms.
+// This implementation abstracts away the specific coordination mechanism through
+// the LockableQueue interface, allowing it to work with various backends (MongoDB,
+// PostgreSQL, Redis, etc.) while maintaining actor-like semantics.
 //
-// Operations that may take significant time, such as Optical Character Recognition (OCR)
-// or toxicity analysis, can be performed concurrently (e.g., in separate goroutines).
-// However, when these operations complete, they must communicate their results back
-// by sending a new message via this mailbox. This ensures that all interactions
-// with an actor's state are funneled through its serialized message queue,
-// maintaining consistency even if the actor instance is restarted or migrates
-// between workers.
+// Processing Lifecycle:
+//
+// The system implements a lock-based processing loop that ensures only one instance
+// processes messages for a given entity at any time:
+//
+//  1. Message Enqueuing: PostMessage() adds messages to the distributed queue via
+//     LockableQueue.Enqueue(), which returns a LockableQueueOp for further operations.
+//
+//  2. Lock Acquisition: The system attempts to acquire an exclusive lock through
+//     LockableQueueOp.TryLock(). This is typically implemented as an atomic
+//     database operation (e.g., conditional updates with timestamps for lease-based
+//     locking). If the lock is already held by another instance, this attempt
+//     gracefully fails without blocking.
+//
+//  3. Processing Loop: Once locked, the system schedules a goroutine that repeatedly:
+//     - Processes the locked entity via LockedEntityRunner.RunLocked()
+//     - Updates the lock state via LockableQueueOp.UpdateLocked()
+//     - Checks if more processing is needed via LockedEntityRunner.Runnable()
+//     - Continues until the queue is empty or the entity becomes non-runnable
+//
+//  4. Automatic Lock Release: The processing loop terminates when no more work
+//     is available, automatically releasing the lock through the UpdateLocked()
+//     mechanism. Other instances can then acquire the lock if new messages arrive.
+//
+// Fault Tolerance:
+//
+// The system is designed for resilience against crashes and network partitions:
+// - Locks are typically implemented with lease timeouts to handle crashed instances
+// - Message enqueuing is separate from lock acquisition, ensuring no message loss
+// - The UpdateLocked() mechanism allows for lease renewal during long processing
+// - Graceful shutdown via Close() ensures clean termination and resource cleanup
+//
+// Concurrency Model:
+//
+// While message processing for each entity is serialized, the system supports
+// high concurrency through:
+//   - Multiple entities can be processed simultaneously by different instances
+//   - Long-running operations (OCR, AI analysis) can spawn separate goroutines
+//     and communicate results back through new messages to maintain ordering
+//   - The scheduler abstraction allows for both concurrent and serial execution modes
 type MailboxPoster[
 	Env Envelope,
 	LEnt any, // Locked entity type e.g. db.TgState.
