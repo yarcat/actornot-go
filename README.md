@@ -34,33 +34,27 @@ All the hard stuff (locking, batching, retries, crash recovery) is handled for y
 Here's a taste from the [counter example](examples/counter-example):
 
 ```go
-// Envelope for a counter increment event
- type CounterEnvelope struct {
-     UserID string
-     Delta  int64
- }
+// RunLocked processes all events for a single entity (user) while holding the distributed lock.
+// This is the *only* place in your entire cloud of functions/servers where the state for this entity
+// is actually mutated and business logic is applied. The distributed locking mechanism ensures that,
+// at any given time, only one instance of RunLocked is executing for a particular user (state),
+// even if there are many servers or goroutines running in parallel. This provides strong sequential
+// processing guarantees and prevents race conditions or double-processing.
+func (r *CounterRunner) RunLocked(state *State) {
+    // IMPORTANT: Clear processed events from memory.
+    events := state.Events
+    state.Events = nil
 
-// State for each user
- type State struct {
-     UserID  string
-     Counter int64
-     Events  []Event // Event queue
-     Lock    struct {
-         Until time.Time // Lock expiration
-         Owner string    // Lock owner
-     }
- }
-
-// Runner: process all events for a user
- func processEvents(state *State) {
-     for len(state.Events) > 0 {
-         event := state.Events[0]
-         state.Counter += event.Delta
-         state.Events = state.Events[1:]
-     }
-     // Save state and release lock
- }
+    // BATCH PROCESSING: Process all events in the current batch.
+    totalDelta := int64(0)
+    for _, event := range events {
+        totalDelta += event.Delta
+    }
+    state.Counter += totalDelta
+}
 ```
+
+This is the only place you should ever mutate per-entity state in your distributed/serverless setup. The mailbox will call this for you, with all the locking and updating handled automagically.
 
 ## Quickstart
 
