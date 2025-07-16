@@ -187,7 +187,7 @@ func (op *CounterQueueOp) UpdateLocked(state *State) (*State, error) {
 	return op.queue.updateLocked(state, op.lockName)
 }
 
-// tryLock implements the distributed locking mechanism from toxic-bot.
+// tryLock implements the distributed locking mechanism.
 // This is the HEART of the actor pattern - it ensures only one instance processes
 // events for a given user across the entire distributed system.
 func (q *CounterQueue) tryLock(userID, lockOwner string) (*State, error) {
