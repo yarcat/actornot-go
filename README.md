@@ -29,6 +29,10 @@ Traditional actor systems (like Akka, Erlang, protoactor-go) are awesome... unti
 
 All the hard stuff (locking, batching, retries, crash recovery) is handled for you. You just write your business logic.
 
+The diagram below illustrates how the system works:
+
+![Diagram](resources/actornot.png)
+
 ## Example: Counter with MongoDB
 
 Here's a taste from the [counter example](examples/counter-example):
