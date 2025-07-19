@@ -41,6 +41,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -387,12 +388,16 @@ func must0(err error) {
 }
 
 func main() {
-	log := slog.Default()
-
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
 		mongoURI = "mongodb://localhost:27017"
 	}
+
+	flag.StringVar(&mongoURI, "mongo-uri", mongoURI, "MongoDB connection URI. MONGO_URI env var is used by default.")
+
+	flag.Parse()
+
+	log := slog.Default()
 
 	client := must(mongo.Connect(options.Client().
 		ApplyURI(mongoURI).
